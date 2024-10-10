@@ -19,7 +19,6 @@ export const {
   disableDefaultPropsExceptForClasses,
   disableLegacyContextForFunctionComponents,
   disableSchedulerTimeoutInWorkLoop,
-  enableAddPropertiesFastPath,
   enableDebugTracing,
   enableDeferRootSchedulingToMicrotask,
   enableDO_NOT_USE_disableStrictPassiveEffect,
@@ -30,6 +29,7 @@ export const {
   enableRetryLaneExpiration,
   enableTransitionTracing,
   enableTrustedTypesIntegration,
+  enableHiddenSubtreeInsertionEffectCleanup,
   favorSafetyOverHydrationPerf,
   renameElementSymbol,
   retryLaneExpirationMs,
@@ -60,6 +60,8 @@ export const enableAsyncActions = true;
 export const disableInputAttributeSyncing = false;
 export const enableLegacyFBSupport = true;
 export const enableLazyContextPropagation = true;
+
+export const enableComponentPerformanceTrack = false;
 
 // Logs additional User Timing API marks for use with an experimental profiling tool.
 export const enableSchedulingProfiler: boolean =

@@ -20,13 +20,12 @@ const dynamicFlags: DynamicExportsType = (dynamicFlagsUntyped: any);
 // the exports object every time a flag is read.
 export const {
   alwaysThrottleRetries,
-  enableAddPropertiesFastPath,
   enableFabricCompleteRootInCommitPhase,
+  enableHiddenSubtreeInsertionEffectCleanup,
   enableObjectFiber,
   enablePersistedModeClonedFlag,
   enableShallowPropDiffing,
   passChildrenWhenCloningPersistedNodes,
-  enableLazyContextPropagation,
   enableSiblingPrerendering,
 } = dynamicFlags;
 
@@ -60,8 +59,9 @@ export const enableFizzExternalRuntime = true;
 export const enableFlightReadableStream = true;
 export const enableGetInspectorDataForInstanceInProduction = true;
 export const enableHalt = false;
-export const enableInfiniteRenderLoopDetection = true;
+export const enableInfiniteRenderLoopDetection = false;
 export const enableContextProfiling = false;
+export const enableLazyContextPropagation = true;
 export const enableLegacyCache = false;
 export const enableLegacyFBSupport = false;
 export const enableLegacyHidden = false;
@@ -76,6 +76,7 @@ export const enableRefAsProp = true;
 export const enableRenderableContext = true;
 export const enableRetryLaneExpiration = false;
 export const enableSchedulingProfiler = __PROFILE__;
+export const enableComponentPerformanceTrack = false;
 export const enableScopeAPI = false;
 export const enableServerComponentLogs = true;
 export const enableSuspenseAvoidThisFallback = false;

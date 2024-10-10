@@ -26,9 +26,11 @@ import {
   syncLaneExpirationMs,
   transitionLaneExpirationMs,
   retryLaneExpirationMs,
+  disableLegacyMode,
 } from 'shared/ReactFeatureFlags';
 import {isDevToolsPresent} from './ReactFiberDevToolsHook';
 import {clz32} from './clz32';
+import {LegacyRoot} from './ReactRootTags';
 
 // Lane values below should be kept in sync with getLabelForLane(), used by react-devtools-timeline.
 // If those values are changed that package should be rebuilt and redeployed.
@@ -229,28 +231,76 @@ export function getNextLanes(root: FiberRoot, wipLanes: Lanes): Lanes {
 
   const suspendedLanes = root.suspendedLanes;
   const pingedLanes = root.pingedLanes;
+  const warmLanes = root.warmLanes;
+
+  // finishedLanes represents a completed tree that is ready to commit.
+  //
+  // It's not worth doing discarding the completed tree in favor of performing
+  // speculative work. So always check this before deciding to warm up
+  // the siblings.
+  //
+  // Note that this is not set in a "suspend indefinitely" scenario, like when
+  // suspending outside of a Suspense boundary, or in the shell during a
+  // transition — only in cases where we are very likely to commit the tree in
+  // a brief amount of time (i.e. below the "Just Noticeable Difference"
+  // threshold).
+  //
+  // TODO: finishedLanes is also set when a Suspensey resource, like CSS or
+  // images, suspends during the commit phase. (We could detect that here by
+  // checking for root.cancelPendingCommit.) These are also expected to resolve
+  // quickly, because of preloading, but theoretically they could block forever
+  // like in a normal "suspend indefinitely" scenario. In the future, we should
+  // consider only blocking for up to some time limit before discarding the
+  // commit in favor of prerendering. If we do discard a pending commit, then
+  // the commit phase callback should act as a ping to try the original
+  // render again.
+  const rootHasPendingCommit = root.finishedLanes !== NoLanes;
 
   // Do not work on any idle work until all the non-idle work has finished,
   // even if the work is suspended.
   const nonIdlePendingLanes = pendingLanes & NonIdleLanes;
   if (nonIdlePendingLanes !== NoLanes) {
+    // First check for fresh updates.
     const nonIdleUnblockedLanes = nonIdlePendingLanes & ~suspendedLanes;
     if (nonIdleUnblockedLanes !== NoLanes) {
       nextLanes = getHighestPriorityLanes(nonIdleUnblockedLanes);
     } else {
+      // No fresh updates. Check if suspended work has been pinged.
       const nonIdlePingedLanes = nonIdlePendingLanes & pingedLanes;
       if (nonIdlePingedLanes !== NoLanes) {
         nextLanes = getHighestPriorityLanes(nonIdlePingedLanes);
+      } else {
+        // Nothing has been pinged. Check for lanes that need to be prewarmed.
+        if (!rootHasPendingCommit) {
+          const lanesToPrewarm = nonIdlePendingLanes & ~warmLanes;
+          if (lanesToPrewarm !== NoLanes) {
+            nextLanes = getHighestPriorityLanes(lanesToPrewarm);
+          }
+        }
       }
     }
   } else {
     // The only remaining work is Idle.
+    // TODO: Idle isn't really used anywhere, and the thinking around
+    // speculative rendering has evolved since this was implemented. Consider
+    // removing until we've thought about this again.
+
+    // First check for fresh updates.
     const unblockedLanes = pendingLanes & ~suspendedLanes;
     if (unblockedLanes !== NoLanes) {
       nextLanes = getHighestPriorityLanes(unblockedLanes);
     } else {
+      // No fresh updates. Check if suspended work has been pinged.
       if (pingedLanes !== NoLanes) {
         nextLanes = getHighestPriorityLanes(pingedLanes);
+      } else {
+        // Nothing has been pinged. Check for lanes that need to be prewarmed.
+        if (!rootHasPendingCommit) {
+          const lanesToPrewarm = pendingLanes & ~warmLanes;
+          if (lanesToPrewarm !== NoLanes) {
+            nextLanes = getHighestPriorityLanes(lanesToPrewarm);
+          }
+        }
       }
     }
   }
@@ -333,6 +383,21 @@ export function getNextLanesToFlushSync(
   }
 
   return NoLanes;
+}
+
+export function checkIfRootIsPrerendering(
+  root: FiberRoot,
+  renderLanes: Lanes,
+): boolean {
+  const pendingLanes = root.pendingLanes;
+  const suspendedLanes = root.suspendedLanes;
+  const pingedLanes = root.pingedLanes;
+  // Remove lanes that are suspended (but not pinged)
+  const unblockedLanes = pendingLanes & ~(suspendedLanes & ~pingedLanes);
+
+  // If there are no unsuspended or pinged lanes, that implies that we're
+  // performing a prerender.
+  return (unblockedLanes & renderLanes) === 0;
 }
 
 export function getEntangledLanes(root: FiberRoot, renderLanes: Lanes): Lanes {
@@ -527,6 +592,10 @@ export function includesSyncLane(lanes: Lanes): boolean {
   return (lanes & (SyncLane | SyncHydrationLane)) !== NoLanes;
 }
 
+export function isSyncLane(lanes: Lanes): boolean {
+  return (lanes & (SyncLane | SyncHydrationLane)) !== NoLanes;
+}
+
 export function includesNonIdleWork(lanes: Lanes): boolean {
   return (lanes & NonIdleLanes) !== NoLanes;
 }
@@ -543,7 +612,11 @@ export function includesOnlyTransitions(lanes: Lanes): boolean {
   return (lanes & TransitionLanes) === lanes;
 }
 
-export function includesBlockingLane(root: FiberRoot, lanes: Lanes): boolean {
+export function includesTransitionLane(lanes: Lanes): boolean {
+  return (lanes & TransitionLanes) !== NoLanes;
+}
+
+export function includesBlockingLane(lanes: Lanes): boolean {
   const SyncDefaultLanes =
     InputContinuousHydrationLane |
     InputContinuousLane |
@@ -556,6 +629,15 @@ export function includesExpiredLane(root: FiberRoot, lanes: Lanes): boolean {
   // This is a separate check from includesBlockingLane because a lane can
   // expire after a render has already started.
   return (lanes & root.expiredLanes) !== NoLanes;
+}
+
+export function isBlockingLane(lane: Lane): boolean {
+  const SyncDefaultLanes =
+    InputContinuousHydrationLane |
+    InputContinuousLane |
+    DefaultHydrationLane |
+    DefaultLane;
+  return (lane & SyncDefaultLanes) !== NoLanes;
 }
 
 export function isTransitionLane(lane: Lane): boolean {
@@ -670,6 +752,7 @@ export function markRootUpdated(root: FiberRoot, updateLane: Lane) {
   if (updateLane !== IdleLane) {
     root.suspendedLanes = NoLanes;
     root.pingedLanes = NoLanes;
+    root.warmLanes = NoLanes;
   }
 }
 
@@ -677,9 +760,18 @@ export function markRootSuspended(
   root: FiberRoot,
   suspendedLanes: Lanes,
   spawnedLane: Lane,
+  didSkipSuspendedSiblings: boolean,
 ) {
   root.suspendedLanes |= suspendedLanes;
   root.pingedLanes &= ~suspendedLanes;
+
+  if (!didSkipSuspendedSiblings) {
+    // Mark these lanes as warm so we know there's nothing else to work on.
+    root.warmLanes |= suspendedLanes;
+  } else {
+    // Render unwound without attempting all the siblings. Do no mark the lanes
+    // as warm. This will cause a prewarm render to be scheduled.
+  }
 
   // The suspended lanes are no longer CPU-bound. Clear their expiration times.
   const expirationTimes = root.expirationTimes;
@@ -700,20 +792,28 @@ export function markRootSuspended(
 
 export function markRootPinged(root: FiberRoot, pingedLanes: Lanes) {
   root.pingedLanes |= root.suspendedLanes & pingedLanes;
+  // The data that just resolved could have unblocked additional children, which
+  // will also need to be prewarmed if something suspends again.
+  root.warmLanes &= ~pingedLanes;
 }
 
 export function markRootFinished(
   root: FiberRoot,
+  finishedLanes: Lanes,
   remainingLanes: Lanes,
   spawnedLane: Lane,
+  updatedLanes: Lanes,
+  suspendedRetryLanes: Lanes,
 ) {
-  const noLongerPendingLanes = root.pendingLanes & ~remainingLanes;
+  const previouslyPendingLanes = root.pendingLanes;
+  const noLongerPendingLanes = previouslyPendingLanes & ~remainingLanes;
 
   root.pendingLanes = remainingLanes;
 
   // Let's try everything again
   root.suspendedLanes = NoLanes;
   root.pingedLanes = NoLanes;
+  root.warmLanes = NoLanes;
 
   root.expiredLanes &= remainingLanes;
 
@@ -761,6 +861,37 @@ export function markRootFinished(
       // to entangle the spawned task with the parent task.
       NoLanes,
     );
+  }
+
+  // suspendedRetryLanes represents the retry lanes spawned by new Suspense
+  // boundaries during this render that were not later pinged.
+  //
+  // These lanes were marked as pending on their associated Suspense boundary
+  // fiber during the render phase so that we could start rendering them
+  // before new data streams in. As soon as the fallback commits, we can try
+  // to render them again.
+  //
+  // But since we know they're still suspended, we can skip straight to the
+  // "prerender" mode (i.e. don't skip over siblings after something
+  // suspended) instead of the regular mode (i.e. unwind and skip the siblings
+  // as soon as something suspends to unblock the rest of the update).
+  if (
+    suspendedRetryLanes !== NoLanes &&
+    // Note that we only do this if there were no updates since we started
+    // rendering. This mirrors the logic in markRootUpdated — whenever we
+    // receive an update, we reset all the suspended and pinged lanes.
+    updatedLanes === NoLanes &&
+    !(disableLegacyMode && root.tag === LegacyRoot)
+  ) {
+    // We also need to avoid marking a retry lane as suspended if it was already
+    // pending before this render. We can't say these are now suspended if they
+    // weren't included in our attempt.
+    const freshlySpawnedRetryLanes =
+      suspendedRetryLanes &
+      // Remove any retry lane that was already pending before our just-finished
+      // attempt, and also wasn't included in that attempt.
+      ~(previouslyPendingLanes & ~finishedLanes);
+    root.suspendedLanes |= freshlySpawnedRetryLanes;
   }
 }
 
@@ -1028,4 +1159,36 @@ export function clearTransitionsForLanes(root: FiberRoot, lanes: Lane | Lanes) {
 
     lanes &= ~lane;
   }
+}
+
+// Used to name the Performance Track
+export function getGroupNameOfHighestPriorityLane(lanes: Lanes): string {
+  if (
+    lanes &
+    (SyncHydrationLane |
+      SyncLane |
+      InputContinuousHydrationLane |
+      InputContinuousLane |
+      DefaultHydrationLane |
+      DefaultLane)
+  ) {
+    return 'Blocking';
+  }
+  if (lanes & (TransitionHydrationLane | TransitionLanes)) {
+    return 'Transition';
+  }
+  if (lanes & RetryLanes) {
+    return 'Suspense';
+  }
+  if (
+    lanes &
+    (SelectiveHydrationLane |
+      IdleHydrationLane |
+      IdleLane |
+      OffscreenLane |
+      DeferredLane)
+  ) {
+    return 'Idle';
+  }
+  return 'Other';
 }

@@ -69,7 +69,7 @@ export function inferTypes(func: HIRFunction): void {
 function apply(func: HIRFunction, unifier: Unifier): void {
   for (const [_, block] of func.body.blocks) {
     for (const phi of block.phis) {
-      phi.id.type = unifier.get(phi.id.type);
+      phi.place.identifier.type = unifier.get(phi.place.identifier.type);
     }
     for (const instr of block.instructions) {
       for (const operand of eachInstructionLValue(instr)) {
@@ -107,7 +107,7 @@ function equation(left: Type, right: Type): TypeEquation {
 function* generate(
   func: HIRFunction,
 ): Generator<TypeEquation, void, undefined> {
-  if (func.env.fnType === 'Component') {
+  if (func.fnType === 'Component') {
     const [props, ref] = func.params;
     if (props && props.kind === 'Identifier') {
       yield equation(props.identifier.type, {
@@ -127,9 +127,9 @@ function* generate(
   const returnTypes: Array<Type> = [];
   for (const [_, block] of func.body.blocks) {
     for (const phi of block.phis) {
-      yield equation(phi.id.type, {
+      yield equation(phi.place.identifier.type, {
         kind: 'Phi',
-        operands: [...phi.operands.values()].map(id => id.type),
+        operands: [...phi.operands.values()].map(id => id.identifier.type),
       });
     }
 
@@ -250,6 +250,7 @@ function* generateInstructionTypes(
     }
 
     case 'CallExpression': {
+      const returnType = makeType();
       /*
        * TODO: callee could be a hook or a function, so this type equation isn't correct.
        * We should change Hook to a subtype of Function or change unifier logic.
@@ -258,8 +259,25 @@ function* generateInstructionTypes(
       yield equation(value.callee.identifier.type, {
         kind: 'Function',
         shapeId: null,
-        return: left,
+        return: returnType,
       });
+      yield equation(left, returnType);
+      break;
+    }
+
+    case 'TaggedTemplateExpression': {
+      const returnType = makeType();
+      /*
+       * TODO: callee could be a hook or a function, so this type equation isn't correct.
+       * We should change Hook to a subtype of Function or change unifier logic.
+       * (see https://github.com/facebook/react-forget/pull/1427)
+       */
+      yield equation(value.tag.identifier.type, {
+        kind: 'Function',
+        shapeId: null,
+        return: returnType,
+      });
+      yield equation(left, returnType);
       break;
     }
 
@@ -392,7 +410,6 @@ function* generateInstructionTypes(
     case 'MetaProperty':
     case 'ComputedStore':
     case 'ComputedLoad':
-    case 'TaggedTemplateExpression':
     case 'Await':
     case 'GetIterator':
     case 'IteratorNext':
