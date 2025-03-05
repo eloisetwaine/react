@@ -35,10 +35,9 @@ export const {
   retryLaneExpirationMs,
   syncLaneExpirationMs,
   transitionLaneExpirationMs,
-  enableOwnerStacks,
-  enableRemoveConsolePatches,
   enableFastAddPropertiesInDiffing,
   enableViewTransition,
+  enableScrollEndPolyfill,
 } = dynamicFeatureFlags;
 
 // On WWW, __EXPERIMENTAL__ is used for a new modern build.
@@ -48,6 +47,7 @@ export const enableProfilerTimer = __PROFILE__;
 export const enableProfilerCommitHooks = __PROFILE__;
 export const enableProfilerNestedUpdatePhase = __PROFILE__;
 export const enableUpdaterTracking = __PROFILE__;
+export const enableFabricCompleteRootInCommitPhase = false;
 
 export const enableSuspenseAvoidThisFallback = true;
 
