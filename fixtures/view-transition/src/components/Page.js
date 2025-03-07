@@ -2,9 +2,11 @@ import React, {
   unstable_ViewTransition as ViewTransition,
   unstable_Activity as Activity,
   unstable_useSwipeTransition as useSwipeTransition,
-  useRef,
-  useLayoutEffect,
+  useEffect,
+  useState,
 } from 'react';
+
+import SwipeRecognizer from './SwipeRecognizer';
 
 import './Page.css';
 
@@ -49,30 +51,16 @@ export default function Page({url, navigate}) {
     viewTransition.new.animate(keyframes, 250);
   }
 
-  const swipeRecognizer = useRef(null);
-  const activeGesture = useRef(null);
-  function onScroll() {
-    if (activeGesture.current !== null) {
-      return;
-    }
-    // eslint-disable-next-line no-undef
-    const scrollTimeline = new ScrollTimeline({
-      source: swipeRecognizer.current,
-      axis: 'x',
-    });
-    activeGesture.current = startGesture(scrollTimeline);
-  }
-  function onScrollEnd() {
-    if (activeGesture.current !== null) {
-      const cancelGesture = activeGesture.current;
-      activeGesture.current = null;
-      cancelGesture();
-    }
+  function swipeAction() {
+    navigate(show ? '/?a' : '/?b');
   }
 
-  useLayoutEffect(() => {
-    swipeRecognizer.current.scrollLeft = show ? 0 : 10000;
-  }, [show]);
+  const [counter, setCounter] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setCounter(c => c + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const exclamation = (
     <ViewTransition name="exclamation" onShare={onTransition}>
@@ -97,7 +85,7 @@ export default function Page({url, navigate}) {
               'navigation-back': transitions['slide-right'],
               'navigation-forward': transitions['slide-left'],
             }}>
-            <h1>{!show ? 'A' : 'B'}</h1>
+            <h1>{!show ? 'A' + counter : 'B' + counter}</h1>
           </ViewTransition>
           {show ? (
             <div>
@@ -120,12 +108,13 @@ export default function Page({url, navigate}) {
           <p></p>
           <p></p>
           <p></p>
-          <div
-            className="swipe-recognizer"
-            onScroll={onScroll}
-            onScrollEnd={onScrollEnd}
-            ref={swipeRecognizer}>
-            <div className="swipe-overscroll">Swipe me</div>
+          <div className="swipe-recognizer">
+            <SwipeRecognizer
+              action={swipeAction}
+              gesture={startGesture}
+              direction={show ? 'left' : 'right'}>
+              Swipe me
+            </SwipeRecognizer>
           </div>
           <p></p>
           <p></p>
