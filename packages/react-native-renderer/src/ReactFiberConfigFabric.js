@@ -58,6 +58,7 @@ import {
 } from './ReactNativeFiberInspector';
 
 import {
+  enableFabricCompleteRootInCommitPhase,
   passChildrenWhenCloningPersistedNodes,
   enableLazyPublicInstanceInFabric,
 } from 'shared/ReactFeatureFlags';
@@ -533,14 +534,19 @@ export function finalizeContainerChildren(
   container: Container,
   newChildren: ChildSet,
 ): void {
-  // Noop - children will be finalized in replaceContainerChildren
+  if (!enableFabricCompleteRootInCommitPhase) {
+    completeRoot(container.containerTag, newChildren);
+  }
 }
 
 export function replaceContainerChildren(
   container: Container,
   newChildren: ChildSet,
 ): void {
-  completeRoot(container.containerTag, newChildren);
+  // Noop - children will be replaced in finalizeContainerChildren
+  if (enableFabricCompleteRootInCommitPhase) {
+    completeRoot(container.containerTag, newChildren);
+  }
 }
 
 export {getClosestInstanceFromNode as getInstanceFromNode};
@@ -583,6 +589,35 @@ export function suspendOnActiveViewTransition(container: Container): void {}
 
 export function waitForCommitToBeReady(): null {
   return null;
+}
+
+export type FragmentInstanceType = null;
+
+export function createFragmentInstance(
+  fragmentFiber: Fiber,
+): FragmentInstanceType {
+  return null;
+}
+
+export function updateFragmentInstanceFiber(
+  fragmentFiber: Fiber,
+  instance: FragmentInstanceType,
+): void {
+  // Noop
+}
+
+export function commitNewChildToFragmentInstance(
+  child: PublicInstance,
+  fragmentInstance: FragmentInstanceType,
+): void {
+  // Noop
+}
+
+export function deleteChildFromFragmentInstance(
+  child: PublicInstance,
+  fragmentInstance: FragmentInstanceType,
+): void {
+  // Noop
 }
 
 export const NotPendingTransition: TransitionStatus = null;
